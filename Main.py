@@ -74,14 +74,14 @@ def run_model(input_sequence, output_size, sequence_length=[data_max_length]*FLA
 #   output_sequence = tf.nn.conv1d(tf.transpose(hidden,[1,0,2]), conv_weight, 1, 'SAME')
 #   output_sequence = tf.transpose(output_sequence, [1,0,2])
   ins_softmax = tf.nn.softmax(npm_core.instructions)
-  hidden = tf.transpose(hidden, [1,0,2])
-  hidden_flat = tf.reshape(hidden, [FLAGS.batch_size, data_max_length*(FLAGS.num_bits+1)])
+  hidden_trans = tf.transpose(hidden, [1,0,2])
+  hidden_flat = tf.reshape(hidden_trans, [FLAGS.batch_size, data_max_length*(FLAGS.num_bits+1)])
   output_flat = snt.Linear(data_max_length*(FLAGS.num_bits+1), name="output_format")(hidden_flat)
   output = tf.transpose(tf.reshape(output_flat, [FLAGS.batch_size, data_max_length, FLAGS.num_bits+1]), [1,0,2])
   _,ins_variance = tf.nn.moments(ins_softmax, -1)
   ins_L2_norm = -tf.reduce_mean(ins_variance)
-#   ins_L2_norm = tf.contrib.layers.l2_regularizer(FLAGS.learning_rate_L2)(npm_core.instructions)
-  return output, ins_L2_norm, tf.argmax(ins_softmax, -1), tf.reduce_max(ins_softmax, -1)
+#   ins_L2_norm = tf.contrib.layers.l2_regularizer(FLAGS.learning_rate_L2)(ins_softmax)
+  return hidden, ins_L2_norm, tf.argmax(ins_softmax, -1), tf.reduce_max(ins_softmax, -1)
 
 
 def train(num_training_iterations, report_interval):
@@ -102,7 +102,7 @@ def train(num_training_iterations, report_interval):
  
   train_loss = dataset.cost(output_logits, dataset_tensors.target,
                             dataset_tensors.mask)
-  train_loss += ins_L2_norm
+  train_loss += tf.where(train_loss<10,1.,0.)*ins_L2_norm
   # Set up optimizer with global norm clipping.
   trainable_variables = tf.trainable_variables()
   grads, _ = tf.clip_by_global_norm(tf.gradients(train_loss, trainable_variables), FLAGS.max_grad_norm)
@@ -115,6 +115,7 @@ def train(num_training_iterations, report_interval):
       collections=[tf.GraphKeys.GLOBAL_VARIABLES, tf.GraphKeys.GLOBAL_STEP])
 #   optimizer = tf.train.RMSPropOptimizer(FLAGS.learning_rate, epsilon=FLAGS.optimizer_epsilon)
   optimizer = tf.train.AdamOptimizer()
+  tf.train.AdamOptimizer
   train_step = optimizer.apply_gradients(zip(grads, trainable_variables), global_step=global_step)
   # saver
   saver = tf.train.Saver(max_to_keep=50)

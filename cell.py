@@ -80,13 +80,14 @@ class Neural_programming_machine(snt.RNNCore):
         
     
   def _build(self, inputs, prev_state):
-    instructions_onehot = onehot_max(self.instructions, 0)
+    instructions_onehot = onehot_max(self.instructions, 0.5)
+    tf.assign(self.instructions, instructions_onehot)
     memory=prev_state.memory
     register=prev_state.register
     cur_ins_addr=prev_state.cur_ins_addr
     cur_mem_addr=prev_state.cur_mem_addr
     
-    cur_ins = tf.matmul(cur_ins_addr, instructions_onehot)
+    cur_ins = tf.matmul(cur_ins_addr, self.instructions)
     parameters_flat = tf.reshape(self.parameters, [self.ins_len, self.para_num*self.para_size])
     cur_para = tf.reshape(tf.matmul(cur_ins_addr, parameters_flat), [-1,self.para_num,self.para_size])
     ins = [tf.expand_dims(item,1) for item in tf.unstack(cur_ins, axis=1)]
