@@ -12,9 +12,9 @@ from cell import Neural_programming_machine as NPM
 
 FLAGS = tf.flags.FLAGS
 # Model parameters
-tf.flags.DEFINE_integer("memory_size", 5, "Size of memory.")
+tf.flags.DEFINE_integer("memory_size", 6, "Size of memory.")
 tf.flags.DEFINE_integer("memory_length", 10, "capacity of memory.")
-tf.flags.DEFINE_integer("register_size", 5, "Size of register.")
+tf.flags.DEFINE_integer("register_size", 6, "Size of register.")
 tf.flags.DEFINE_integer("register_num", 4, "number of registers.")
 tf.flags.DEFINE_integer("instruction_size", 10, "Size of instruction.")
 tf.flags.DEFINE_integer("instruction_length", 20, "length of instruction.")
@@ -88,7 +88,8 @@ def train(num_training_iterations, report_interval):
   # from DNC-master/train.py
   dataset = repeat_copy.RepeatCopy(FLAGS.num_bits, FLAGS.batch_size,
                                    FLAGS.min_length, FLAGS.max_length,
-                                   FLAGS.min_repeats, FLAGS.max_repeats)
+                                   FLAGS.min_repeats, FLAGS.max_repeats,
+                                   time_average_cost=True)
   dataset_tensors = dataset()
   data_length = tf.shape(dataset_tensors.observations)[0]
   zeros_obs = tf.zeros([data_max_length - data_length, FLAGS.batch_size, FLAGS.num_bits+2])
@@ -117,17 +118,22 @@ def train(num_training_iterations, report_interval):
   optimizer = tf.train.AdamOptimizer()
   tf.train.AdamOptimizer
   train_step = optimizer.apply_gradients(zip(grads, trainable_variables), global_step=global_step)
+  hooks = []
+  # scalar
+  tf.summary.scalar('loss', train_loss)
+  hooks.append(
+      tf.train.SummarySaverHook(
+          save_steps=5,
+          output_dir=FLAGS.checkpoint_dir+"/logs",
+          summary_op=tf.summary.merge_all()))
   # saver
   saver = tf.train.Saver(max_to_keep=50)
   if FLAGS.checkpoint_interval > 0:
-    hooks = [
+    hooks.append(
         tf.train.CheckpointSaverHook(
             checkpoint_dir=FLAGS.checkpoint_dir,
             save_steps=FLAGS.checkpoint_interval,
-            saver=saver)
-    ]
-  else:
-    hooks = []
+            saver=saver))
   # Train.
   with tf.train.SingularMonitoredSession(hooks=hooks, checkpoint_dir=FLAGS.checkpoint_dir) as sess:
     start_iteration = sess.run(global_step)
@@ -136,7 +142,7 @@ def train(num_training_iterations, report_interval):
     for train_iteration in range(start_iteration, num_training_iterations):
       _, loss = sess.run([train_step, train_loss])
       total_loss += loss
-       
+      
       if (train_iteration + 1) % report_interval == 0:
         dataset_tensors_np, output_np, ins_sequence_np, ins_prob_np =\
                 sess.run([dataset_tensors, output, ins_sequence, ins_prob])
