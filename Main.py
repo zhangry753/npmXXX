@@ -80,7 +80,7 @@ def run_model(input_sequence, output_size, sequence_length=[data_max_length]*FLA
   output = tf.transpose(tf.reshape(output_flat, [FLAGS.batch_size, data_max_length, FLAGS.num_bits+1]), [1,0,2])
   _,ins_variance = tf.nn.moments(ins_softmax, -1)
   ins_L2_norm = -tf.reduce_mean(ins_variance)
-#   ins_L2_norm = tf.contrib.layers.l2_regularizer(FLAGS.learning_rate_L2)(ins_softmax)
+#   ins_L2_norm = tf.contrib.layers.l2_regularizer(1.)(ins_softmax)
   return hidden, ins_L2_norm, tf.argmax(ins_softmax, -1), tf.reduce_max(ins_softmax, -1)
 
 
