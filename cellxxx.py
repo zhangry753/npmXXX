@@ -50,7 +50,7 @@ class Neural_programming_machine(snt.RNNCore):
     self.ins_len = instruction_length
     self.para_size = parameter_size
     self.para_num = parameter_num
-    self.instructions = tf.get_variable("instructions", [self.ins_len, self.ins_size], initializer=tf.zeros_initializer())
+    self.instructions = tf.get_variable("instructions", [self.ins_len, self.ins_size], initializer=tf.random_uniform_initializer(-0.1, 0.1))
     self.parameters = tf.get_variable("parameters", [self.ins_len, self.para_num, self.para_size], initializer=tf.random_uniform_initializer(-0.1, 0.1))
         
     
@@ -74,16 +74,16 @@ class Neural_programming_machine(snt.RNNCore):
     input_value = encode(inputs, self.reg_size)
     new_reg_value = ins[0] * input_value
     reg_id = tf.nn.softmax(encode(para[0], self.reg_num))
-    reg_id_usable = reg_id * (1-reg_usage)
+#     reg_id_usable = reg_id * (1-reg_usage)
     reg_usage = reg_id + (1-reg_id)*reg_usage
-    new_reg_value_all = tf.matmul(tf.expand_dims(reg_id_usable,2), tf.expand_dims(new_reg_value,1)) +\
-            tf.expand_dims(1-reg_id_usable,2) * register
+    new_reg_value_all = tf.matmul(tf.expand_dims(reg_id,2), tf.expand_dims(new_reg_value,1)) +\
+            tf.expand_dims(1-reg_id,2) * register
     register = tf.expand_dims(ins[0],1) * new_reg_value_all  +\
             tf.expand_dims(1-ins[0],1) * register
     # ins1 输出: para0--寄存器id
     reg_id = tf.nn.softmax(encode(para[0], self.reg_num))
-    reg_id_usable = reg_id * reg_usage
-    reg_value = tf.reshape(tf.matmul(tf.expand_dims(reg_id_usable,1), register), [-1,self.reg_size])
+#     reg_id_usable = reg_id * reg_usage
+    reg_value = tf.reshape(tf.matmul(tf.expand_dims(reg_id,1), register), [-1,self.reg_size])
     output = ins[1] * encode(reg_value, self._output_size)
     # ins2 终止(重复执行本条指令): no para
     ins_E = tf.diag(tf.ones([self.ins_len-1]))
@@ -96,7 +96,12 @@ class Neural_programming_machine(snt.RNNCore):
     ins_E_bottom = tf.concat([ins_E, [[0]*(self.ins_len-1)]] ,0)
     ins_move_matrix = tf.concat([[[0]]*(self.ins_len-1)+[[1]], ins_E_bottom], -1)
     cur_ins_addr = tf.matmul(cur_ins_addr, ins_move_matrix)
-    return output, NPM_State(
+    rewards = tf.concat([
+        ins[0]*tf.reduce_sum(tf.square(reg_id)*(1-2*prev_state.register_usage),-1,keep_dims=True),
+        ins[1]*tf.reduce_sum(tf.square(reg_id)*(2*prev_state.register_usage-1),-1,keep_dims=True),
+        ins[2]*tf.ones([tf.shape(reg_id)[0],1])
+      ],-1)
+    return tf.concat([output,rewards],-1), NPM_State(
         memory=memory,
         register=register,
         register_usage=reg_usage,
@@ -122,6 +127,6 @@ class Neural_programming_machine(snt.RNNCore):
 
   @property
   def output_size(self):
-    return tf.TensorShape([self._output_size])
+    return tf.TensorShape([self._output_size+self.ins_size])
   
   
