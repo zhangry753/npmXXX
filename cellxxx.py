@@ -50,8 +50,8 @@ class Neural_programming_machine(snt.RNNCore):
     self.ins_len = instruction_length
     self.para_size = parameter_size
     self.para_num = parameter_num
-    self.instructions = tf.get_variable("instructions", [self.ins_len, self.ins_size], initializer=tf.random_uniform_initializer(-0.1, 0.1))
-    self.parameters = tf.get_variable("parameters", [self.ins_len, self.para_num, self.para_size], initializer=tf.random_uniform_initializer(-0.1, 0.1))
+    self.instructions = tf.get_variable("instructions", [self.ins_len, self.ins_size], initializer=tf.random_uniform_initializer(1e-10, 1.0))
+    self.parameters = tf.get_variable("parameters", [self.ins_len, self.para_num, self.para_size], initializer=tf.random_uniform_initializer(1e-10, 1.0))
         
     
   def _build(self, inputs, prev_state):
@@ -61,19 +61,20 @@ class Neural_programming_machine(snt.RNNCore):
     cur_ins_addr=prev_state.cur_ins_addr
     cur_mem_addr=prev_state.cur_mem_addr
     
-    ins_clip = tf.clip_by_value(self.instructions, -10.0, 10.0)
-    ins_softmax = tf.nn.softmax(ins_clip)
-    para_clip = tf.clip_by_value(self.parameters, -10.0, 10.0)
+    ins_clip = tf.clip_by_value(self.instructions, 1e-10, 1.0)
+    ins_softmax = ins_clip / tf.reduce_sum(ins_clip, -1, keep_dims=True)
+    para_clip = tf.clip_by_value(self.parameters, 1e-10, 1.0)
     cur_ins = tf.matmul(cur_ins_addr, ins_softmax)
     parameters_flat = tf.reshape(para_clip, [self.ins_len, self.para_num*self.para_size])
     cur_para = tf.reshape(tf.matmul(cur_ins_addr, parameters_flat), [-1,self.para_num,self.para_size])
+    cur_para_norm = cur_para / tf.reduce_sum(cur_para, -1, keep_dims=True)
     ins = [tf.expand_dims(item,1) for item in tf.unstack(cur_ins, axis=1)]
-    para = tf.unstack(cur_para, axis=1)
+    para = tf.unstack(cur_para_norm, axis=1)
     #----------------------------------更新寄存器---------------------------------------------
+    reg_id = encode(para[0], self.reg_num)
     # ins0 输入到寄存器: para0--寄存器id
     input_value = encode(inputs, self.reg_size)
     new_reg_value = ins[0] * input_value
-    reg_id = tf.nn.softmax(encode(para[0], self.reg_num))
 #     reg_id_usable = reg_id * (1-reg_usage)
     reg_usage = reg_id + (1-reg_id)*reg_usage
     new_reg_value_all = tf.matmul(tf.expand_dims(reg_id,2), tf.expand_dims(new_reg_value,1)) +\
@@ -81,9 +82,8 @@ class Neural_programming_machine(snt.RNNCore):
     register = tf.expand_dims(ins[0],1) * new_reg_value_all  +\
             tf.expand_dims(1-ins[0],1) * register
     # ins1 输出: para0--寄存器id
-    reg_id = tf.nn.softmax(encode(para[0], self.reg_num))
 #     reg_id_usable = reg_id * reg_usage
-    reg_value = tf.reshape(tf.matmul(tf.expand_dims(reg_id,1), register), [-1,self.reg_size])
+    reg_value = tf.reshape(tf.matmul(tf.expand_dims(reg_id,1), tf.stop_gradient(register)), [-1,self.reg_size])
     output = ins[1] * encode(reg_value, self._output_size)
     # ins2 终止(重复执行本条指令): no para
     ins_E = tf.diag(tf.ones([self.ins_len-1]))
@@ -96,12 +96,8 @@ class Neural_programming_machine(snt.RNNCore):
     ins_E_bottom = tf.concat([ins_E, [[0]*(self.ins_len-1)]] ,0)
     ins_move_matrix = tf.concat([[[0]]*(self.ins_len-1)+[[1]], ins_E_bottom], -1)
     cur_ins_addr = tf.matmul(cur_ins_addr, ins_move_matrix)
-    rewards = tf.concat([
-        ins[0]*tf.reduce_sum(tf.square(reg_id)*(1-2*prev_state.register_usage),-1,keep_dims=True),
-        ins[1]*tf.reduce_sum(tf.square(reg_id)*(2*prev_state.register_usage-1),-1,keep_dims=True),
-        ins[2]*tf.ones([tf.shape(reg_id)[0],1])
-      ],-1)
-    return tf.concat([output,rewards],-1), NPM_State(
+    register_flat = tf.reshape(register, [-1, self.reg_num*self.reg_size])
+    return tf.concat([output,register_flat,prev_state.register_usage],-1), NPM_State(
         memory=memory,
         register=register,
         register_usage=reg_usage,
@@ -127,6 +123,8 @@ class Neural_programming_machine(snt.RNNCore):
 
   @property
   def output_size(self):
-    return tf.TensorShape([self._output_size+self.ins_size])
+    return tf.TensorShape([self._output_size
+                           +self.reg_num*self.reg_size
+                           +self.reg_num])
   
   
